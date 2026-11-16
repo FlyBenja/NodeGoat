@@ -1,0 +1,69 @@
+
+name: T7 - DevSecOps SAST SCA SBOM
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sast-semgrep:
+    name: SAST - Semgrep
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar codigo del repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar Semgrep
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install semgrep
+          semgrep --version
+
+      - name: Ejecutar analisis SAST
+        run: |
+          mkdir -p reports
+          semgrep scan \
+            --config p/security-audit \
+            --config p/owasp-top-ten \
+            --json \
+            --output reports/semgrep-results.json \
+            .
+
+      - name: Mostrar resumen de hallazgos
+        run: |
+          python - <<'PY'
+          import json
+
+          with open("reports/semgrep-results.json", encoding="utf-8") as f:
+              data = json.load(f)
+
+          results = data.get("results", [])
+          print("Total de hallazgos SAST:", len(results))
+
+          for item in results[:20]:
+              severity = item.get("extra", {}).get("severity", "UNKNOWN")
+              rule = item.get("check_id", "sin-regla")
+              path = item.get("path", "sin-ruta")
+              line = item.get("start", {}).get("line", "?")
+              print(f"[{severity}] {rule} - {path}:{line}")
+          PY
+
+      - name: Publicar reporte SAST
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: t7-semgrep-json
+          path: reports/semgrep-results.json
+          if-no-files-found: warn
